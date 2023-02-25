@@ -8,13 +8,9 @@ import os
 import math
 from collections import OrderedDict
 
-DEFAULT_NOTE_SCALAR=13.75
-# TEST_NOTE_SCALAR=6.875
-EDO22 = 12/22 * DEFAULT_NOTE_SCALAR
-NOTE_SCALAR=DEFAULT_NOTE_SCALAR
-
 DEFAULT_TEMPO = 0.5
 DEFAULT_NOTE_LENGTH = 0.2
+DEFAULT_NOTE_SCALAR = 13.75
 APPDATA_DIR = os.path.expandvars(r'%LOCALAPPDATA%\Midi2TromboneChamp')
 
 
@@ -43,6 +39,12 @@ def note2freq(x):
     a = 440
     return (a/32) * (2 ** ((x-9)/12))
 
+def edToNoteScalar(divisions, periodRatio=2):
+    """
+        Convert an equal temperament definition into a note scalar
+    """
+    semitones = math.log2(periodRatio ** (1.0 / float(divisions))) * 12
+    return DEFAULT_NOTE_SCALAR * semitones
 
 def round_decimals_up(number:float, decimals:int=2):
     """
@@ -75,9 +77,9 @@ MAX_PITCH=noteToPitch(72, DEFAULT_NOTE_SCALAR)
 def clip(value, minValue, maxValue):
     return min(max(minValue, value), maxValue)
 
-def SetupNote(beat, length, noteNumber, endNoteNumber):
-    startPitch = clip(noteToPitch(noteNumber, NOTE_SCALAR), MIN_PITCH, MAX_PITCH)
-    endPitch = clip(noteToPitch(endNoteNumber, NOTE_SCALAR), MIN_PITCH, MAX_PITCH)
+def SetupNote(beat, length, noteNumber, endNoteNumber, noteScalar=DEFAULT_NOTE_SCALAR):
+    startPitch = clip(noteToPitch(noteNumber, noteScalar), MIN_PITCH, MAX_PITCH)
+    endPitch = clip(noteToPitch(endNoteNumber, noteScalar), MIN_PITCH, MAX_PITCH)
     return [beat, length , startPitch , endPitch - startPitch , endPitch]
 
 
@@ -99,6 +101,7 @@ class DialogFieldValues:
         self.spacing = 120
         # NOTE: Skipping song endpoint as that can always be inferred
         self.bpm = 120
+        self.noteScalar = DEFAULT_NOTE_SCALAR
         self.bpb = 2
 
         self.save_tmb_file = 'song.tmb'
@@ -224,13 +227,19 @@ class DialogBoxes:
             filetypes=[["\\*.mid", "\\*.midi"], "MIDI files"])
         return self._quit_or_save(self.__values.open_midi_file)
 
-    def prompt_for_bpm(self):
+    def prompt_for_bpm_and_tuning(self):
         # NOTE: Truncating to int in text box here,
         # although users are free to give float values if they really want to...
-        bpm = enterbox("BPM of Midi", "Enter BPM", "{:.0f}".format(self.__values.bpm))
+        fields = ["BPM", "ET Divisions", "ET Period"]
+        msg = "Enter BPM and optional equal-division tuning values (keep blank for default)"
+        [bpm, divisions, period] = multenterbox(msg, "BPM and Tuning", fields)
+        # bpm = enterbox("BPM of Midi", "Enter BPM", "{:.0f}".format(self.__values.bpm))
         # float(None) will throw an exception, so have to go around it when dialog is canceled
         self.__values.bpm = None if bpm is None else float(bpm)
-        return self._quit_or_save(self.__values.bpm)
+        divisions = 12 if not divisions else float(divisions)
+        period = 2 if not period else float(period)
+        self.__values.noteScalar = edToNoteScalar(divisions, period)
+        return self._quit_or_save((self.__values.bpm, self.__values.noteScalar))
 
     def prompt_for_chart_info(self, song_name, final_bar):
         msg = "Enter the Chart Info"
@@ -268,7 +277,13 @@ if __name__ == '__main__':
     dialog = DialogBoxes()
     midi_file = dialog.prompt_for_midi_file()
     song_name = os.path.splitext(os.path.basename(midi_file))[0]
-    bpm = dialog.prompt_for_bpm()
+    (bpm, noteScalar) = dialog.prompt_for_bpm_and_tuning()
+    print("BPM: " + str(bpm))
+    print("NOTE_SCALAR: " + str(noteScalar))
+    if math.isnan(noteScalar):
+        print("Invalid tuning input")
+        exit()
+
     nyxTracks = dict()
     for i in range(16):
         nyxTracks[i] = []
@@ -370,12 +385,12 @@ if __name__ == '__main__':
                     lastChannel = message.channel
                     if (not noteHeld):
                         #No notes being held, so we set it up
-                        currentNote = SetupNote(currBeat, 0, noteToUse, noteToUse)
+                        currentNote = SetupNote(currBeat, 0, noteToUse, noteToUse, noteScalar)
                     else:
                         #If we are holding one, we add the previous note we set up, and set up a new one
                         print("Cancelling Previous note!" + str(currBeat) + " old is" + str(currentNote[0]))
                         currentNote[1] = round(currBeat-currentNote[0],3)
-                        currentNote[4] = (noteToUse-60)*NOTE_SCALAR
+                        currentNote[4] = (noteToUse-60)*noteScalar
                         currentNote[3] = currentNote[4]-currentNote[2]
 
                         for noteParam in range(len(currentNote)):
@@ -384,7 +399,7 @@ if __name__ == '__main__':
                                 currentNote[1] = DEFAULT_NOTE_LENGTH
                         
                         notes += [currentNote]
-                        currentNote = SetupNote(currBeat, 0, noteToUse, noteToUse)
+                        currentNote = SetupNote(currBeat, 0, noteToUse, noteToUse, noteScalar)
                     print(currentNote)
                     noteHeld = True
 
