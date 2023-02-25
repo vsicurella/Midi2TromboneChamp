@@ -8,6 +8,10 @@ import os
 import math
 from collections import OrderedDict
 
+DEFAULT_NOTE_SCALAR=13.75
+# TEST_NOTE_SCALAR=6.875
+EDO22 = 12/22 * DEFAULT_NOTE_SCALAR
+NOTE_SCALAR=DEFAULT_NOTE_SCALAR
 
 DEFAULT_TEMPO = 0.5
 DEFAULT_NOTE_LENGTH = 0.2
@@ -62,10 +66,18 @@ def is_note_on(msg):
 def is_note_off(msg):
     return msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0)
 
+def noteToPitch(note:int, pitchScalar:float=13.75):
+    return (note-60)*pitchScalar
+
+MIN_PITCH=noteToPitch(48, DEFAULT_NOTE_SCALAR)
+MAX_PITCH=noteToPitch(72, DEFAULT_NOTE_SCALAR)
+
+def clip(value, minValue, maxValue):
+    return min(max(minValue, value), maxValue)
 
 def SetupNote(beat, length, noteNumber, endNoteNumber):
-    startPitch = (noteNumber-60)*13.75
-    endPitch = (endNoteNumber-60)*13.75
+    startPitch = clip(noteToPitch(noteNumber, NOTE_SCALAR), MIN_PITCH, MAX_PITCH)
+    endPitch = clip(noteToPitch(endNoteNumber, NOTE_SCALAR), MIN_PITCH, MAX_PITCH)
     return [beat, length , startPitch , endPitch - startPitch , endPitch]
 
 
@@ -353,7 +365,7 @@ if __name__ == '__main__':
 
             else:  # Note
                 if is_note_on(message):
-                    noteToUse = min(max(48, message.note),72)
+                    noteToUse = message.note
                     lastNote = noteToUse
                     lastChannel = message.channel
                     if (not noteHeld):
@@ -363,7 +375,7 @@ if __name__ == '__main__':
                         #If we are holding one, we add the previous note we set up, and set up a new one
                         print("Cancelling Previous note!" + str(currBeat) + " old is" + str(currentNote[0]))
                         currentNote[1] = round(currBeat-currentNote[0],3)
-                        currentNote[4] = (noteToUse-60)*13.75
+                        currentNote[4] = (noteToUse-60)*NOTE_SCALAR
                         currentNote[3] = currentNote[4]-currentNote[2]
 
                         for noteParam in range(len(currentNote)):
@@ -377,7 +389,7 @@ if __name__ == '__main__':
                     noteHeld = True
 
                 if is_note_off(message):
-                    noteToUse = min(max(48, message.note),72)
+                    noteToUse = message.note
                     if (message.channel == 1):
                         print("Skipping channel 1 note off...")
                     if (message.channel == 0):
